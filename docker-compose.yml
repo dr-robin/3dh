@@ -1,0 +1,12 @@
+version: '2'
+services:
+  web:
+#Builds web service from image specified in the "." Dockerfile 
+    build: .
+#Binds local port to container port
+    ports:
+      - "5000:5000"
+      
+#Mounts container volume
+    volumes:
+      - ./webapp:/opt/webapp
