@@ -1,15 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Deployment Documentation
-# In this notebook we'll aggregate the code snippets and instructions for our Deployment project.
-
 # # 3D House code
 
 # Imports
-
-# In[1]:
-
 
 import numpy as np
 import pandas as pd
@@ -26,16 +20,21 @@ from rasterio import mask
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 from rasterio.enums import Resampling
-from scipy import misc
-import time
 import sys
 import boto3
 import shutil
+import plotly.graph_objects as go
+
+# MAIN VARIABLES
+
+client_type = 's3'
+bucket_name = 'geotiffs3dhouse'
+
+aws_client = boto3.client(client_type)
+bucket_content = aws_client.list_objects(Bucket=bucket_name)
 
 
-# (*TODO*) This code needs to be changed so the external data path is the data bucket, and the lookup is also stored online somewhere
-
-# In[2]:
+# file_searcher() takes an S3 Bucket, and a filetype (ex: .tif)
 
 
 def file_searcher(bucket_content, file_type):
@@ -50,12 +49,9 @@ def file_searcher(bucket_content, file_type):
     return ext_list
 
 
-# **TODO File Searcher**
-# 
-# loops through all files in a certain path, and applies a given function to every file of the desired type
-
-# In[3]:
-
+# Address error and lookup
+# address_lookup takes a string and requests it as a parameter from loc.geopunt.be
+# which returns a dict containing the correct address notation
 
 class AddressError(Exception):
     pass
@@ -76,10 +72,9 @@ def address_lookup(addr: str, debug=False):
     return ret_dict
 
 
-# In[4]:
+# given an address dict, returns the polygon associated with the building on that location
 
-
-# Hedia's polygon API
+## Hedia's polygon API
 def hedi_api(address: dict, debug=False):
     street = address['Thoroughfarename'][0]
     nb = address['Housenumber'][0]
@@ -107,7 +102,8 @@ def hedi_api(address: dict, debug=False):
     return polygon
 
 
-# In[5]:
+# Robin's fast_overlap() takes a list of paths to .tif files, and a polygon
+# and finds the file in which this polygon is situated with minimal data reading
 
 
 def fast_overlap(filelist, polygon):
@@ -124,8 +120,7 @@ def fast_overlap(filelist, polygon):
     return [dsmfile, dtmfile]
 
 
-# In[6]:
-
+# calculate_dem() makes a dem image from a masked dsm and dtm, where only the data needed is read out
 
 def calculate_dem(tifs, polygon, address, upscale_factor=10):
     dsmpath = tifs[0]
@@ -155,13 +150,11 @@ def calculate_dem(tifs, polygon, address, upscale_factor=10):
     return plot_interactive(dem, address)
 
 
-# In[7]:
+# plot_interactive() generates a .html file that gives the user an interactive 3d plot of the building
 
 
 def plot_interactive(dem, address_dict, debug=False):
     address_str = address_dict['FormattedAddress'][0]
-
-    import plotly.graph_objects as go
 
     # Plot xyz of building
     fig = go.Figure(data=[go.Surface(z=dem)])
@@ -177,18 +170,8 @@ def plot_interactive(dem, address_dict, debug=False):
     return output_file
 
 
-# In[8]:
-
-
-# MAIN VARIABLES
-
-client_type = 's3'
-bucket_name = 'geotiffs3dhouse'
-
-aws_client = boto3.client('s3')
-bucket_content = aws_client.list_objects(Bucket='geotiffs3dhouse')
-bucket_files = file_searcher(bucket_content, '.tif')
-
+# searchf() is a high-level function to walk through a directory and return all files
+# of a certain filetype
 
 def searchf(fpath: str, file_type: str):
     total_files = []
@@ -200,18 +183,24 @@ def searchf(fpath: str, file_type: str):
                 total_files.append(name)
     return total_files
 
+# clears the /templates/ folder, and makes it again, because otherwise the program complains
 
 def reset_templates():
     shutil.rmtree('templates/')
     os.mkdir('templates/')
 
+# house_plot() calls all of the above functions in the correct order 
+# and returns the path where the .html file is stored
 
 def house_plot(address_dict, debug=False):
+    bucket_files = file_searcher(bucket_content, '.tif')
     poly = hedi_api(address_dict, debug)
     tiflist = fast_overlap(bucket_files, poly)
     output = calculate_dem(tiflist, poly, address_dict)
     return output
 
+# main determines what action should be taken based on the user's input in the flask app
+# if a certain address has been computed before, it'll open that .html instead of remaking it
 
 def main(inp):
     address_dict = address_lookup(inp)
@@ -221,96 +210,6 @@ def main(inp):
         if address_name in temp:
             return temp
     return house_plot(address_dict)
-
-
-# In[9]:
-
-
-# FLASK APP CHUNK
-from flask import Flask, request, render_template, render_template_string
-
-app = Flask(__name__)
-#app.config["TEMPLATES_AUTO_RELOAD"] = True
-
-
-@app.route('/home')
-def index():
-    # Need to create plot here
-    return '''
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-    <title>3D house builder</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
-    </head>
-    <body>
-    <div class="container">
-    #there should be a 3D plot here!
-    #Need to convert the 3D plot image using base64 encoding. Then load into html here!
-    fig.write_html(f"{address_str}.html")
-    </div>
-    </body>
-    </html>'''
-
-
-@app.route('/', methods=['GET', 'POST'])
-def home():
-    if request.method == 'POST':
-        address = request.form.get('address')
-        if address == '$RESET':
-            reset_templates()
-            return '''
-            <h1>Emptied the templates folder</h1>
-            '''
-        else:
-            output_html = main(str(address))
-            return render_template(output_html)
-
-    # Landing page with user address form
-    return '''
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-    <title>3D house builder</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
-    </head>
-    <body>
-    <div class="container">
-    <img src="./house.svg" alt="house"> 
-    </div>
-    <div class="container-fluid">
-    <div class="jumbotron">
-    <h1>3D house builder</h1>
-    </div>
-    <div class="container-fluid">
-    <h4>This little app can build a 3D representation of any address in Flanders</h4>
-    <p>Enter address</p>
-    <form method='POST'>
-    #<label id="address">Enter an address (in Antwerp, or this won't work!)</label>
-    #<input id='address', type='text' name='address'/>
-    <input type='submit' value='Submit'/>
-    </p>
-    </form>
-
-    </div>
-    </body>
-    </html>'''
-
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', use_reloader=False)
-
-# <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-# <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
-# use for warnings <div class="alert alert-danger">
-# <img src="{{ url_for('plot', height=height, width=width) }}" />
-
-
-# In[ ]:
 
 
 
