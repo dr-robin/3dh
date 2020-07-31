@@ -3,7 +3,9 @@
 To use the app, open terminal, make a new directory 3dh and clone the repository
 
 mkdir 3dh
+
 cd 3dh
+
 git clone git@github.com:dr-robin/3dh.git
 
 Then you can load the app via docker
@@ -12,8 +14,11 @@ Then you can load the app via docker
 Then in terminal you can start the docker container as follows:
 
 docker-compose build
+
 docker-compose up -d
+
 docker ps -a
+
 flask run
 
 Open you browser at http://127.0.0.1:5000/
